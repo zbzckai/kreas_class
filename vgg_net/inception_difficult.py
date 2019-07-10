@@ -360,7 +360,9 @@ if __name__ == '__main__':
         validation_data=validation_generator,
         validation_steps=nb_val_samples // batch_size,
         class_weight='auto')##进行训练
-    model.save('model/{}_no_top.h5'.format(model_name))#保存模型地址
+    json_string = model.to_json()
+    open('{}.json'.format(model_name), 'w').write(json_string)
+    model.save_weights('{}.h5'.format(model_name))
     ##进行测试
     img_path = 'ceshi.jpg'
     img = image.load_img(img_path, target_size=(299, 299))

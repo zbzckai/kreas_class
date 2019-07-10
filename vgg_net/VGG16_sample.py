@@ -115,8 +115,9 @@ if __name__ == "__main__":
         validation_data=validation_generator,
         validation_steps=nb_val_samples // batch_size,
         class_weight='auto')
-    model.save('model/{}_no_top.h5'.format(model_name))
-
+    json_string = model.to_json()
+    open('model/{}_no_top.json'.format(model_name), 'w').write(json_string)
+    model.save_weights('model/{}_no_top.h5'.format(model_name))
     '''对顶层分类器进行Fine-tune'''
     # Fine-tune以一个预训练好的网络为基础，在新的数据集上重新训练一小部分权重。fine-tune应该在很低的学习率下进行，通常使用SGD优化
     setup_to_finetune(model,NB_IV3_LAYERS_TO_FREEZE)##NB_IV3_LAYERS_TO_FREEZE 冻结的层数，如果等于零相当于全放开
@@ -127,4 +128,6 @@ if __name__ == "__main__":
         validation_data=validation_generator,
         validation_steps=nb_val_samples // batch_size,
         class_weight='auto')
-    model.save('model/{}_fine-tune.h5'.format(model_name))
+    json_string = model.to_json()
+    open('model/{}_fine-tune.json'.format(model_name), 'w').write(json_string)
+    model.save_weights('model/{}_fine-tune.h5'.format(model_name))
