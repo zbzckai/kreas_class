@@ -111,7 +111,11 @@ def get_pre_solution(pre_y,train_label_path):
     all_pre = pd.DataFrame(all_pre)
     all_pre = pd.concat((true_name,all_pre),axis=1)
     return all_pre
-
+#load_model
+def model_load(model_json_path, model_weight_path):
+    model = model_from_json(open(model_json_path).read())
+    model.load_weights(model_weight_path)
+    return model
 
 if __name__ == "__main__":
 
@@ -126,8 +130,11 @@ if __name__ == "__main__":
     ##导入图片
     pre_x = get_inputs(predict_dir)
     ##导入模型
-    model = model_from_json(open('D:\soft\git\kai\kreas_inception\mnist_kreas_model_architecture.json').read())
-    model.load_weights('D:\soft\git\kai\kreas_inception\mnist_kreas_mode_weights1.h5')
+    model_json_path = 'D:\soft\git\kai\kreas_inception\mnist_kreas_model_architecture.json'
+    model_weight_path = 'D:\soft\git\kai\kreas_inception\mnist_kreas_mode_weights1.h5'
+
+
+    model = model_load(model_json_path,model_weight_path)
     #进行预测
     pre_y = model.predict(pre_x)
     #预测结果展示

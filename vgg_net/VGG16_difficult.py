@@ -20,22 +20,10 @@ from keras import backend as K
 from keras.preprocessing.image import ImageDataGenerator
 from vgg_net.imagenet_utils import decode_predictions, preprocess_input,preprocess_input_image
 from keras.models import model_from_json
-'''获取文件的个数'''
-os.getcwd()
-model_name = 'VGG16'
-path = '../data'
-train_dir = os.path.join(path, 'train')
-test_dir = os.path.join(path, 'test')
-nb_epoch = 1
-epoch_frezz = 1
-batch_size = 8
-
-IM_WIDTH, IM_HEIGHT = 224, 224  # InceptionV3指定的图片尺寸
-NB_IV3_LAYERS_TO_FREEZE = 0  ##在进行微调的时候选择冻结的
 
 
 ##生成训练图片
-def image_preprocess():
+def image_preprocess(train_dir ,validation_dir,IM_WIDTH ,IM_HEIGHT,batch_size):
     #   图片生成器
     # 　训练集的图片生成器，通过参数的设置进行数据扩增
     train_datagen = ImageDataGenerator(
@@ -74,7 +62,7 @@ def image_preprocess():
         batch_size=batch_size, class_mode='categorical')
 
     validation_generator = val_datagen.flow_from_directory(
-        test_dir,
+        validation_dir,
         target_size=(IM_WIDTH, IM_HEIGHT),
         batch_size=batch_size, class_mode='categorical')
     return train_generator, validation_generator
@@ -202,36 +190,84 @@ def add_new_last_layer(base_model, nb_classes):##增加后面的三层重新训�
     predictions = Dense(nb_classes, activation='softmax', name='predictions')(x)
     model = Model(input=base_model.input, output=predictions)
     return model
-
-if __name__ == '__main__':
+##保存模型
+def model_save(model_type,model,model_name):
+    json_string = model.to_json()
+    open('{}_{}.json'.format(model_name,model_type), 'w').write(json_string)
+    model.save_weights('{}_{}.h5'.format(model_name,model_type))
+##定义微调模型
+def setup_to_finetune(model,optimizer_fine_tune,NB_IV3_LAYERS_TO_FREEZE):
+    for layer in model.layers[:NB_IV3_LAYERS_TO_FREEZE]:
+        layer.trainable = False
+    for layer in model.layers[NB_IV3_LAYERS_TO_FREEZE:]:
+        layer.trainable = True
+    model.compile(optimizer=optimizer_fine_tune, loss='categorical_crossentropy', metrics=['accuracy'])
+#训练模型
+def model_train(train_dir, validation_dir, IM_WIDTH= 224, IM_HEIGHT=224, model_name='VGG16', include_top=False,
+                batch_size=32, nb_epoch_no_top=1, epoch_finne=1, weights='imagenet',
+                optimizer=SGD(lr=0.0001, momentum=0.9)##训练的lr太大会导致不收敛
+                , loss='categorical_crossentropy', fine_tune = False,metrics=['accuracy'],NB_IV3_LAYERS_TO_FREEZE = 0,optimizer_fine_tune = SGD(lr=0.0001, momentum=0.9)):
+    '''
+    # :param train_dir:训练数据的路径，存储形式按照train/标签name/标签数据图片
+    :param validation_dir: 测试数据的路径，存储形式按照test/标签name/标签数据图片
+    :param IM_WIDTH,IM_HEIGHT:输入图片模型的像素
+    :param model_name:模型的名字
+    :param include_top:是否包含顶层
+    :param batch_size:批次
+    :param nb_epoch_no_top:模型retrain的次数
+    :param epoch_finne:模型微调次数
+    :param weights:权重
+    :param optimizer:梯度参数
+    :param loss:损失
+    :param metrics:评价
+    :param optimizer_fine_tune:微调梯度参数参数
+    :param NB_IV3_LAYERS_TO_FREEZE:微调开始层数
+    :param fine_tune 是否进行微调
+    :return:返回训练好的模型，并保存模型
+    '''
     nb_train_samples = get_nb_files(train_dir)  # 训练样本个数
     nb_classes = len(glob.glob(train_dir + "/*"))  # 分类数
-    nb_val_samples = get_nb_files(test_dir)  # 验证集样本个数
-    train_generator, validation_generator = image_preprocess()
-    base_model = VGG16(include_top=False, weights='imagenet')  ##include_top 如果是true 的话就会包含顶层训练的权重，若果不包含则会重新训练 fune_tine表示是否进行微调
-    for layer in base_model.layers:
+    nb_val_samples = get_nb_files(validation_dir)  # 验证集样本个数
+    train_generator, validation_generator = image_preprocess(train_dir, validation_dir, IM_WIDTH, IM_HEIGHT, batch_size)
+    base_model = VGG16(include_top=include_top,
+                             weights=weights)  ##include_top 如果是true 的话就会包含顶层训练的权重，若果不包含则会重新训练 fune_tine表示是否进行微调
+
+    setup_to_transfer_learn(base_model)  ##设置固定的层数
+    model = add_new_last_layer(base_model, nb_classes)  # 增加顶层
+    for layer in model.layers:
         print(layer.trainable)
-    setup_to_transfer_learn(base_model)##设置固定的层数
-    base_model.layers
-    model = add_new_last_layer(base_model,nb_classes)#增加顶层
-    model.compile(optimizer=SGD(lr=0.0001, momentum=0.9), loss='categorical_crossentropy', metrics=['accuracy'])
-    history_tl = model.fit_generator(
+    model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
+    model.fit_generator(
         train_generator,
-        epochs=epoch_frezz,
+        epochs=nb_epoch_no_top,
         steps_per_epoch=nb_train_samples // batch_size,
         validation_data=validation_generator,
         validation_steps=nb_val_samples // batch_size,
-        class_weight='auto')##进行训练
+        class_weight='auto')  ##进行训练
+    print('{}retrain已经训练完成'.format(model_name))
+    model_save(model_type = 'retrain',model = model,model_name = model_name)
+    print('{}retrain模型已经保存')
+    setup_to_finetune(model,optimizer_fine_tune,NB_IV3_LAYERS_TO_FREEZE)
+    if fine_tune:
+        print('{}模型开始微调'.format(model_name))
+        model.fit_generator(
+            train_generator,
+            steps_per_epoch=nb_train_samples // batch_size,
+            epochs=epoch_finne,
+            validation_data=validation_generator,
+            validation_steps=nb_val_samples // batch_size,
+            class_weight='auto')
+        model_save(model_type='fine_tune', model=model, model_name=model_name)
+        print('{}微调模型已经保存')
+    return model
+if __name__ == '__main__':
 
-    json_string = model.to_json()
-    open('{}.json'.format(model_name), 'w').write(json_string)
-    model.save_weights('{}.h5'.format(model_name))
+    path = '../data'
+    train_dir = os.path.join(path, 'train')
+    validation_dir = os.path.join(path, 'test')
+    ##训练模型
+    model = model_train(validation_dir= validation_dir,train_dir=train_dir)
 
-    ##进行测试
-    img_path = 'ceshi.jpg'
-    img = image.load_img(img_path, target_size=(IM_WIDTH, IM_HEIGHT))
-    x = image.img_to_array(img)
-    x = np.expand_dims(x, axis=0)
-    x = preprocess_input(x)
-    preds = model.predict(x)
-    print('Predicted:', decode_predictions(preds))
+
+
+
